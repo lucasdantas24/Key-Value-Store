@@ -13,7 +13,7 @@ public class Server {
     private String IP;
     private Boolean isLeader;
     private ArrayList<Integer> serverPorts;
-    private HashMap<String, valueInfo> keyValuePairs = new HashMap<>();
+    private HashMap<String, ValueInfo> keyValuePairs = new HashMap<>();
     private int leaderPort;
     private String leaderIP;
 
@@ -76,10 +76,64 @@ public class Server {
         }
     }
 
-    private void putRequisition() {
+    private void putRequisition(Socket socket, Message ms) throws IOException, ClassNotFoundException {
+        if (!this.isLeader()) {
 
-        Timestamp ts = new Timestamp(System.currentTimeMillis());
 
+        } else {
+            OutputStream os = socket.getOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(os);
+
+            System.out.println("Cliente "
+                    + ms.getRequesterIP()
+                    + ":"
+                    + ms.getRequesterPort()
+                    + " PUT key:"
+                    + ms.getKey()
+                    + " value:"
+                    + ms.getValue()
+                    + ".");
+
+            String key = ms.getKey();
+            String value = ms.getValue();
+
+            Timestamp ts = new Timestamp(System.currentTimeMillis());
+
+            ValueInfo vi = new ValueInfo(value, ts);
+
+            keyValuePairs.put(key, vi);
+
+            ms.setTimestamp(ts);
+
+            if (replicate(ms)) {
+                ms.setRequisitionType("PUT_OK");
+                oos.writeObject(ms);
+            } else {
+                ms.setRequisitionType("PUT_FAILED");
+                oos.writeObject(ms);
+            }
+        }
+    }
+
+    private boolean replicate(Message ms) throws IOException, ClassNotFoundException {
+        for (int port : serverPorts) {
+            Socket socket = new Socket(IP, port);
+
+            OutputStream os = socket.getOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(os);
+
+            ms.setRequisitionType("REPLICATION");
+
+            oos.writeObject(ms);
+
+            InputStream is = socket.getInputStream();
+            ObjectInputStream ois = new ObjectInputStream(is);
+
+            ms = (Message) ois.readObject();
+
+            if (ms.getRequisitionType().equals("REPLICATION_OK")) return false;
+        }
+        return true;
     }
 
     private void getRequisition() {
@@ -88,14 +142,6 @@ public class Server {
 
     private void replicationRequisition() {
 
-    }
-
-    static class requisitionsHandler implements Runnable {
-
-        @Override
-        public void run() {
-
-        }
     }
 
     public void setServerPorts(int port) {
@@ -146,8 +192,6 @@ public class Server {
             try {
                 InputStream is = socket.getInputStream();
                 ObjectInputStream ois = new ObjectInputStream(is);
-                OutputStream os = socket.getOutputStream();
-                ObjectOutputStream oos = new ObjectOutputStream(os);
 
                 Message ms = (Message) ois.readObject();
 
@@ -155,7 +199,7 @@ public class Server {
 
                 switch (requisitionType) {
                     case "PUT":
-                        putRequisition();
+                        putRequisition(socket, ms);
                         break;
                     case "GET":
                         getRequisition();
@@ -171,11 +215,11 @@ public class Server {
         }
     }
 
-    private class valueInfo {
+    private class ValueInfo {
         private String value;
         private Timestamp timestamp;
 
-        public valueInfo(String value, Timestamp timestamp) {
+        public ValueInfo(String value, Timestamp timestamp) {
             this.value = value;
             this.timestamp = timestamp;
         }

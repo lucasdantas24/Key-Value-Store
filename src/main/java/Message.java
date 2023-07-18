@@ -6,14 +6,16 @@ public class Message implements Serializable {
     private String value;
     private String requisitionType;
     private Timestamp timestamp;
-    private String requisitionResponse;
+    private String requesterIP;
+    private String requesterPort;
 
-    public Message(String key, String value, String requisitionType) {
+    public Message(String key, String value, String requisitionType, String requesterIP, String requesterPort) {
         this.key = key;
         this.value = value;
         this.requisitionType = requisitionType;
-        this.timestamp = new Timestamp(System.currentTimeMillis());
-        this.requisitionResponse = "";
+        this.timestamp = new Timestamp(Long.MIN_VALUE);
+        this.requesterIP = requesterIP;
+        this.requesterPort = requesterPort;
     }
 
     public Message(String key, String value, String requisitionType, Timestamp timestamp) {
@@ -21,7 +23,6 @@ public class Message implements Serializable {
         this.value = value;
         this.requisitionType = requisitionType;
         this.timestamp = timestamp;
-        this.requisitionResponse = "";
     }
 
     public String getKey() {
@@ -40,8 +41,12 @@ public class Message implements Serializable {
         return timestamp;
     }
 
-    public String getRequisitionResponse() {
-        return requisitionResponse;
+    public String getRequesterIP() {
+        return requesterIP;
+    }
+
+    public String getRequesterPort() {
+        return requesterPort;
     }
 
     public void setValue(String value) {
@@ -56,7 +61,11 @@ public class Message implements Serializable {
         this.timestamp = timestamp;
     }
 
-    public void setRequisitionResponse(String requisitionResponse) {
-        this.requisitionResponse = requisitionResponse;
+    public void setRequesterIP(String requesterIP) {
+        this.requesterIP = requesterIP;
+    }
+
+    public void setRequesterPort(String requesterPort) {
+        this.requesterPort = requesterPort;
     }
 }
