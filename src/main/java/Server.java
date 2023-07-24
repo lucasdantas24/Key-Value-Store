@@ -8,19 +8,17 @@ import java.util.Scanner;
 
 public class Server {
     private static final String DEFAULT_IP = "127.0.0.1";
-    private static final int DEFAULT_PORT = 10097;
-    private int port;
-    private String IP;
+    private final int port;
+    private final String IP;
     private Boolean isLeader;
-    private ArrayList<Integer> serverPorts;
-    private HashMap<String, ValueInfo> keyValuePairs = new HashMap<>();
-    private int leaderPort;
-    private String leaderIP;
+    private final ArrayList<Integer> serverPorts = new ArrayList<>();
+    private final HashMap<String, ValueInfo> keyValuePairs = new HashMap<>();
+    private final int leaderPort;
+    private final String leaderIP;
 
     public Server(int port, String IP, int leaderPort, String leaderIP) {
         this.port = port;
         this.IP = IP;
-        this.isLeader = isLeader;
         this.leaderPort = leaderPort;
         this.leaderIP = leaderIP;
 
@@ -58,26 +56,59 @@ public class Server {
     }
 
     private void start() {
-        try {
-            ServerSocket serverSocket = new ServerSocket(this.getPort());
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
 
-            do {
+            while (true) {
                 Socket socket = serverSocket.accept();
 
-                RequisitionHandler rh = new RequisitionHandler(socket);
+                RequisitionHandler rh = new RequisitionHandler(socket, this);
 
                 // Inicia thread para enviar arquivo paralelamente
                 Thread rhThread = new Thread(rh);
                 rhThread.start();
-            } while (true);
+            }
 
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    private void putRequisition(Socket socket, Message ms) throws IOException, ClassNotFoundException {
+    private void putRequisition(Socket socket, Message ms) throws IOException, ClassNotFoundException, InterruptedException {
+
         if (!this.isLeader()) {
+
+            try {
+
+                Socket leaderSocket = new Socket(leaderIP, leaderPort);
+
+                OutputStream leaderOs = leaderSocket.getOutputStream();
+                ObjectOutputStream leaderOos = new ObjectOutputStream(leaderOs);
+
+                System.out.println("Encaminhando PUT key:"
+                        + ms.getKey()
+                        + " value:"
+                        + ms.getValue());
+
+                leaderOos.writeObject(ms);
+
+                InputStream is = leaderSocket.getInputStream();
+                ObjectInputStream ois = new ObjectInputStream(is);
+
+                Message updatedMs = (Message) ois.readObject();
+
+
+                OutputStream os = socket.getOutputStream();
+                ObjectOutputStream oos = new ObjectOutputStream(os);
+
+                oos.writeObject(updatedMs);
+
+                oos.close();
+                ois.close();
+                leaderOos.close();
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
 
 
         } else {
@@ -91,8 +122,7 @@ public class Server {
                     + " PUT key:"
                     + ms.getKey()
                     + " value:"
-                    + ms.getValue()
-                    + ".");
+                    + ms.getValue());
 
             String key = ms.getKey();
             String value = ms.getValue();
@@ -106,18 +136,40 @@ public class Server {
             ms.setTimestamp(ts);
 
             if (replicate(ms)) {
+                System.out.println("Enviando PUT_OK ao cliente "
+                        + ms.getRequesterIP()
+                        + ":"
+                        + ms.getRequesterPort()
+                        + " da key:"
+                        + ms.getKey()
+                        + " ts:"
+                        + ms.getTimestamp());
+
+                ms.setRequesterIP(IP);
+                ms.setRequesterPort(String.valueOf(port));
                 ms.setRequisitionType("PUT_OK");
                 oos.writeObject(ms);
             } else {
+                System.out.println("Requisicao falhou, enviando PUT_FAILED ao cliente "
+                        + ms.getRequesterIP()
+                        + ":"
+                        + ms.getRequesterPort()
+                        + "da key:"
+                        + ms.getKey());
                 ms.setRequisitionType("PUT_FAILED");
                 oos.writeObject(ms);
             }
+
+            oos.close();
         }
     }
 
-    private boolean replicate(Message ms) throws IOException, ClassNotFoundException {
+    private boolean replicate(Message ms) throws IOException, ClassNotFoundException, InterruptedException {
         for (int port : serverPorts) {
+
             Socket socket = new Socket(IP, port);
+
+            Thread.sleep(10000);
 
             OutputStream os = socket.getOutputStream();
             ObjectOutputStream oos = new ObjectOutputStream(os);
@@ -131,17 +183,83 @@ public class Server {
 
             ms = (Message) ois.readObject();
 
-            if (ms.getRequisitionType().equals("REPLICATION_OK")) return false;
+            oos.close();
+            ois.close();
+
+            if (!ms.getRequisitionType().equals("REPLICATION_OK")) return false;
         }
         return true;
     }
 
-    private void getRequisition() {
+    private void getRequisition(Socket socket, Message ms) throws IOException {
+        ValueInfo vi = keyValuePairs.get(ms.getKey());
 
+        OutputStream os = socket.getOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(os);
+
+        Timestamp ts = ms.getTimestamp();
+
+        if (vi == null) {
+            ms.setValue(null);
+            ms.setTimestamp(null);
+        } else if (vi.getTimestamp().before(ms.getTimestamp())){
+            ms.setValue("TRY_OTHER_SERVER_OR_LATER");
+            ms.setTimestamp(vi.getTimestamp());
+        } else {
+            ms.setValue(vi.getValue());
+            ms.setTimestamp(vi.getTimestamp());
+        }
+
+        if (vi != null) {
+            System.out.println("Cliente "
+                    + ms.getRequesterIP()
+                    + ":"
+                    + ms.getRequesterPort()
+                    + " GET key:"
+                    + ms.getKey()
+                    + " ts:"
+                    + ts
+                    + ". Meu ts e "
+                    + vi.getTimestamp()
+                    + ", portanto devolvendo "
+                    + ms.getValue());
+        } else {
+            System.out.println("Cliente "
+                    + ms.getRequesterIP()
+                    + ":"
+                    + ms.getRequesterPort()
+                    + " GET key:"
+                    + ms.getKey()
+                    + " ts:"
+                    + ts
+                    + ". Chave nao encontrada, retornando null");
+        }
+
+        oos.writeObject(ms);
+
+        oos.close();
     }
 
-    private void replicationRequisition() {
+    private void replicationRequisition(Socket socket, Message ms) throws IOException {
+        OutputStream os = socket.getOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(os);
 
+        ValueInfo vi = new ValueInfo(ms.getValue(), ms.getTimestamp());
+
+        keyValuePairs.put(ms.getKey(), vi);
+
+        System.out.println("REPLICATION key:"
+                + ms.getKey()
+                + " value:"
+                + ms.getValue()
+                + " ts:"
+                + ms.getTimestamp());
+
+        ms.setRequisitionType("REPLICATION_OK");
+
+        oos.writeObject(ms);
+
+        oos.close();
     }
 
     public void setServerPorts(int port) {
@@ -156,40 +274,23 @@ public class Server {
         this.isLeader = port == leaderPort;
     }
 
-    public int getPort() {
-        return port;
-    }
-
-    public String getIP() {
-        return IP;
-    }
-
     public Boolean isLeader() {
         return isLeader;
     }
 
-    public ArrayList<Integer> getServerPorts() {
-        return serverPorts;
-    }
-
-    public int getLeaderPort() {
-        return leaderPort;
-    }
-
-    public String getLeaderIP() {
-        return leaderIP;
-    }
-
     class RequisitionHandler implements Runnable {
-        private Socket socket;
+        private final Socket socket;
+        private final Server server;
 
-        public RequisitionHandler(Socket socket) {
+        public RequisitionHandler(Socket socket, Server server) {
             this.socket = socket;
+            this.server = server;
         }
 
         @Override
         public void run() {
             try {
+
                 InputStream is = socket.getInputStream();
                 ObjectInputStream ois = new ObjectInputStream(is);
 
@@ -199,25 +300,27 @@ public class Server {
 
                 switch (requisitionType) {
                     case "PUT":
-                        putRequisition(socket, ms);
+                        server.putRequisition(socket, ms);
                         break;
                     case "GET":
-                        getRequisition();
+                        server.getRequisition(socket, ms);
                         break;
                     case "REPLICATION":
-                        replicationRequisition();
+                        server.replicationRequisition(socket, ms);
                         break;
                 }
 
-            } catch (IOException | ClassNotFoundException e) {
+                ois.close();
+
+            } catch (IOException | ClassNotFoundException | InterruptedException e) {
                 e.printStackTrace();
             }
         }
     }
 
     private class ValueInfo {
-        private String value;
-        private Timestamp timestamp;
+        private final String value;
+        private final Timestamp timestamp;
 
         public ValueInfo(String value, Timestamp timestamp) {
             this.value = value;
@@ -228,16 +331,9 @@ public class Server {
             return value;
         }
 
-        public void setValue(String value) {
-            this.value = value;
-        }
-
         public Timestamp getTimestamp() {
             return timestamp;
         }
 
-        public void setTimestamp(Timestamp timestamp) {
-            this.timestamp = timestamp;
-        }
     }
 }

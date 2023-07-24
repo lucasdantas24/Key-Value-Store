@@ -18,6 +18,24 @@ public class Message implements Serializable {
         this.requesterPort = requesterPort;
     }
 
+    public Message(String key, String requisitionType, String requesterIP, String requesterPort) {
+        this.key = key;
+        this.value = value;
+        this.requisitionType = requisitionType;
+        this.timestamp = new Timestamp(0);
+        this.requesterIP = requesterIP;
+        this.requesterPort = requesterPort;
+    }
+
+    public Message(String key, Timestamp ts, String requisitionType, String requesterIP, String requesterPort) {
+        this.key = key;
+        this.value = null;
+        this.requisitionType = requisitionType;
+        this.timestamp = ts;
+        this.requesterIP = requesterIP;
+        this.requesterPort = requesterPort;
+    }
+
     public Message(String key, String value, String requisitionType, Timestamp timestamp) {
         this.key = key;
         this.value = value;
